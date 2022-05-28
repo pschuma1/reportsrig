@@ -1,0 +1,481 @@
+---
+title: "Exploration of tax-related data"
+author: "Patrick Schumacher"
+date: '`r paste("First created on 2022-5-10. Updated on", Sys.Date())`'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    number_sections: no
+---
+
+```{=html}
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 15px;
+  }
+td {  /* Table  */
+  font-size: 14px;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+```
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "/Users/patricksaccount/Desktop/RIG Work/Stat Yearbook Tax Data", warning = FALSE, message = FALSE,dplyr.summarise.inform = FALSE,warn.conflicts = FALSE)
+```
+
+```{r set_environment, include = FALSE}
+pacman::p_load(tidyverse,
+               readr, 
+               lubridate,
+               RColorBrewer,
+               plotly,
+               kableExtra,
+               mapdeck,
+               sf,
+               scales,
+               janitor)
+
+# Inverse of %in% operator
+`%ni%` <- Negate(`%in%`)
+
+```
+
+# What this report adds
+
+The first section of this report provides an exploratory analysis of statistical information on tax returns for New York State. Data was obtained from two files retrieved from the New York Open Data portal. One file shows tax data for [1999-2014](https://data.ny.gov/Government-Finance/Income-Tax-Components-by-Size-of-Income-by-Place-o/5bb2-yb85), while the other file shows tax data for [2015-2019](https://data.ny.gov/Government-Finance/Personal-Income-Tax-Filers-Summary-Dataset-1-Major/73iw-kuxv). The second section of the report identifies the top industries and sectors in New York State by county and tax year, using publicly available [data on taxable sales and purchases](https://data.ny.gov/Government-Finance/Taxable-Sales-And-Purchases-Quarterly-Data-Beginni/ny73-2j3u).
+
+My analysis provides the following contributions:
+
+-   Aggregated and cleaned data set for development of dashboard
+
+-   Visualizations to illustrate trends in income tax and taxable sales/purchases
+
+# Section 1: Income-tax related data
+
+## Definitions
+
++-----------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| **Term**                    | **Definition**                                                                                                                                                                                                                                                        |
++-----------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| **Adjusted Gross Income**   | Gross income minus adjustments to income. Gross income includes wages, dividends, capital gains, business income, and retirement distributions, while adjustments to income include student loan interest, alimony payments or contributions to a retirement account. |
++-----------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| **Tax liability**           | Total taxes owed to the IRS from income tax, capital gains tax, self-employment tax, and any penalties or interest.                                                                                                                                                   |
++-----------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+| **Total number of returns** | Count of the number of return filings (note: married filing joint returns count as one)                                                                                                                                                                               |
++-----------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+
+```{r import, echo=FALSE}
+#Import dataset
+tax99to19 <- readRDS("./data/tax99to19.rds")
+tax_states <- readRDS("./data/tax_states.rds")
+sales <- readRDS("./data/sales.rds")
+ncais <- read.csv("./data/working/ncais.csv")
+ny_boundary <- readRDS("./data/ny_boundary.rds")
+```
+
+## Timelines of key variables
+
+I constructed line graphs to show trends in the following three variables from 1999 to 2019: 1) adjusted gross income, 2) tax liability, and 3) number of returns. There are 62 counties in New York State, which is too many to display in one graph. Therefore, I selected the five counties with the highest values for each variable in 1999 and the five counties with the lowest values for each variable in 1999. I then plotted changes in the variables across these two sets of five counties over the study period.
+
+### Adjusted gross income
+
+The combined AGI for all counties in New York State in 1999 was 398.2 billion. That figure had risen to 801.0 billion dollars by 2019, a 50.3 percent increase over the 20-year span. The increase in AGI was primarily driven by counties in the downstate region. The AGI of King County, for example, increased by 180 percent, from 2.8 billion in 1999 to 7.9 billion in 2019.
+
+The county with the highest AGI in 2019 was New York County (Manhattan), which totaled 203.1 billion dollars. Hamilton County, the least populous county in the state, recorded the smallest AGI (102.4 million dollars) in 2019. I also observed a major dip in AGI around 2007 to 2009, as a result of the Great Recession.
+
+```{r minmax, echo=F}
+max99 <- tax99to19 %>%
+  filter(tax_year== 2019) %>%
+  slice_max(ny_agi_of_all_returns, n= 5)
+
+min99 <- tax99to19 %>%
+  filter(tax_year== 2019) %>%
+  slice_min(ny_agi_of_all_returns, n= 5)
+```
+
+```{r plot1.1, echo= F, out.width= "100%"}
+
+ggplot(data= filter(tax99to19, county %in% max99$county), aes(x= tax_year, y= ny_agi_of_all_returns, color= county, group= county)) +
+  geom_line(stat="identity") + theme_bw() + 
+  theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+  labs(title= "Counties with highest adjusted gross income, 1999 to 2019",
+       y= "Adjusted gross income (billions)", x= "Tax year", color= "County")+
+  scale_y_continuous(labels = unit_format(unit = "B", scale = 1e-9))+
+  scale_color_brewer(palette = "Dark2") +
+  annotate("text", x = "2010", y = 150000000000,label = c("Great recession"), size= 3)
+# dev.off()
+
+```
+
+```{r plot1.2, echo= FALSE, out.width= "100%"}
+
+ggplot(data= filter(tax99to19, county %in% min99$county), aes(x= tax_year, y= ny_agi_of_all_returns, color= county, group= county)) +
+  geom_line(stat="identity") + theme_bw() + 
+  theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+  labs(title= "Counties with lowest adjusted gross income, 1999 to 2019", y= "Tax liability (millions)", x= "Tax year", color= "County")+
+  scale_y_continuous(labels = unit_format(unit = "M", scale = 1e-6, accuracy = NULL))+ scale_color_brewer(palette = "Set1")
+
+```
+
+### Tax liability
+
+The tax liability across counties in 2019 ranged from 13.4 billion in New York County (Manhattan) to 3.9 million in Hamilton County. The total tax liability for all counties, in aggregated, increased from 178.8 billion in 1999 to 411.4 billion in 2019, a 130.1 percent increase.
+
+```{r minmax2, echo=F}
+max99 <- tax99to19 %>%
+  filter(tax_year== 2019) %>%
+  slice_max(tax_liability_of_all_returns, n= 5)
+
+min99 <- tax99to19 %>%
+  filter(tax_year== 2019) %>%
+  slice_min(tax_liability_of_all_returns, n= 5)
+```
+
+```{r plot2.1, echo= FALSE, out.width= "100%"}
+
+ggplot(data= filter(tax99to19, county %in% max99$county), aes(x= tax_year, y= tax_liability_of_all_returns, color= county, group= county)) +
+  geom_line(stat="identity") + theme_bw() + 
+  theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+  labs(title= "Counties with highest tax liability, 1999 to 2019",
+       y= "Tax liability (billions)", x= "Tax year", color= "County")+
+  scale_y_continuous(labels = unit_format(unit = "B", scale = 1e-9))+
+  scale_color_brewer(palette = "Dark2") 
+
+```
+
+```{r plot2.2, echo= FALSE, out.width= "100%"}
+
+ggplot(data= filter(tax99to19, county %in% min99$county), aes(x= tax_year, y= tax_liability_of_all_returns, color= county, group= county)) +
+  geom_line(stat="identity") + theme_bw() + 
+  theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+  labs(title= "Counties with lowest tax liability, 1999 to 2019",
+       y= "Tax liability (millions)", x= "Tax year", color= "County")+
+  scale_y_continuous(labels = unit_format(unit = "M", scale = 1e-6, accuracy = NULL))+
+  scale_color_brewer(palette = "Set1")
+
+```
+
+### Number of returns
+
+The Department of Taxation and Finance for New York State recorded a total of 9,491,406 returns in 2019. The majority of these returns (1,222,709 or 12.9 percent) came from King County. There were 7,757,394 total returns in 1999.
+
+```{r returnbar, echo= FALSE, out.width= "100%"}
+
+max99 <- tax99to19 %>%
+  filter(tax_year== 2019) %>%
+  slice_max(number_of_all_returns, n= 5)
+
+min99 <- tax99to19 %>%
+  filter(tax_year== 2019) %>%
+  slice_min(number_of_all_returns, n= 5)
+```
+
+```{r plot3.1, echo= FALSE, out.width= "100%"}
+
+ggplot(data= filter(tax99to19, county %in% max99$county), aes(x= tax_year, y= number_of_all_returns, color= county, group= county)) +
+  geom_line(stat="identity") + theme_bw() + 
+  theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+  labs(title= "Counties with highest number of returns, 1999 to 2019",
+       y= "Adjusted gross income (thousands)", x= "Tax year", color= "County")+
+  scale_y_continuous(labels = unit_format(unit = "T", scale = 1e-3))+
+  scale_color_brewer(palette = "Dark2") 
+
+```
+
+```{r plot3.2, echo= FALSE, out.width= "100%"}
+
+ggplot(data= filter(tax99to19, county %in% min99$county), aes(x= tax_year, y= number_of_all_returns, color= county, group= county)) +
+  geom_line(stat="identity") + theme_bw() + 
+  theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+  labs(title= "Counties with lowest number of returns, 1999 to 2019",
+       y= "Number of returns (thousands)", x= "Tax year", color= "County")+
+  scale_y_continuous(labels = unit_format(unit = "T", scale = 1e-3, accuracy = NULL))+
+  scale_color_brewer(palette = "Set1")
+```
+
+## Arithmetic versus logarithmic axis
+
+There is a huge discrepancy in tax data between counties in downstate New York and upstate New York. The bar plot below demonstrates the huge difference in AGI between counties like New York County (Manhattan) and Hamilton County.
+
+```{r countyBar1, echo=F, fig.height=10, fig.width=10}
+ggplot(data= filter(tax99to19, tax_year== 2019), aes(x= reorder(county, ny_agi_of_all_returns), y= ny_agi_of_all_returns)) + geom_bar(stat="identity", fill= "cornflowerblue") + coord_flip()+ theme(text = element_text(size=25))+
+  labs(title= str_wrap("Adjusted gross income by county in New York State, tax year 2019", 85), y= "Adjusted gross income (in billions)") +
+  theme_bw()+
+  theme(axis.title.y=element_blank()) +
+  scale_y_continuous(labels = unit_format(unit = "B", scale = 1e-9, accuracy = NULL))
+
+```
+
+### Map without axis re-scaled
+
+The large differences in AGI make it difficult to visualize the data in a single plot, as in the heat map below.
+
+![](/Users/patricksaccount/Desktop/RIG%20Work/Stat%20Yearbook%20Tax%20Data/figures/county_plot.png)
+
+### Map with axis re-scaled
+
+The plot with a logarithmic scale looks much better than the plot with an arithmetic scale, enabling the reader to more easily distinguish differences across counties. The downside is that the logarithmic scale is harder to interpret. Another option is to plot upstate and downstate counties separately with their own arithmetic scale (not shown).
+
+![](/Users/patricksaccount/Desktop/RIG%20Work/Stat%20Yearbook%20Tax%20Data/figures/log_county_plot.png)
+
+## State-by-state analysis
+
+### Top ten states for key variables
+
+People living in New Jersey and Connecticut make the largest contributions to New York State tax revenue. The tax liability of New Jerseyans, for example, was over 3.8 billion dollars in 2019 (second bar plot below).
+
+```{r stateBar1, echo= F, out.width= "100%"}
+max99 <- tax_states %>%
+  filter(tax_year== 2019) %>%
+  slice_max(agi_of_all_returns, n= 10)
+
+ggplot(data= max99, aes(x= reorder(state,agi_of_all_returns), y= agi_of_all_returns)) +
+  geom_bar(stat="identity", fill= "aquamarine4") +
+  coord_flip()+ theme_bw()+ theme(axis.title.y=element_blank()) +
+  labs(title= str_wrap("Top ten states for adjusted gross income, tax year 2019", 85), y= "Adjusted gross income (in billions)") +
+  scale_y_continuous(labels = unit_format(unit = "B", scale = 1e-9, accuracy = NULL))
+```
+
+```{r stateBar2, echo= F, out.width= "100%"}
+max99 <- tax_states %>%
+  filter(tax_year== 2019) %>%
+  slice_max(tax_liability_of_all_returns, n= 10)
+
+ggplot(data= max99, aes(x= reorder(state,tax_liability_of_all_returns), y= tax_liability_of_all_returns)) +
+  geom_bar(stat="identity", fill= "darkorchid1") +
+  coord_flip()+ theme_bw()+ theme(axis.title.y=element_blank()) +
+  labs(title= str_wrap("Top ten states for tax liability, tax year 2019", 85), y= "Tax liability (in billions)") +
+  scale_y_continuous(labels = unit_format(unit = "B", scale = 1e-9, accuracy = NULL))
+```
+
+```{r stateBar3, echo= F, out.width= "100%"}
+
+max99 <- tax_states %>%
+  filter(tax_year== 2019) %>%
+  slice_max(number_of_all_returns, n= 10)
+
+ggplot(data= max99, aes(x= reorder(state,number_of_all_returns), y= number_of_all_returns)) +
+  geom_bar(stat="identity", fill= "firebrick1") +
+  coord_flip()+ theme_bw()+ theme(axis.title.y=element_blank()) +
+  labs(title= str_wrap("Top ten states for number of returns, tax year 2019", 85), y= "Number of returns (in thousands)") +
+  scale_y_continuous(labels = unit_format(unit = "T", scale = 1e-3, accuracy = NULL))
+```
+
+### Trends in tax liability across states
+
+-   The total tax liability for returnees living in states other than New York increased from 2.4 billion in 1999 to 7.1 billion in 2019.
+
+-   New Jerseyans had the largest out-of-state tax liability, totaling 3.8 billion in 2019.
+
+```{r LineGraph, echo= F, out.width= "100%", warning=F, message=F}
+
+lineGraph <- readRDS("./data/working/lineGraph.rds")
+
+ggplot(data= lineGraph, aes(x= tax_year, y= sum, color= State, group= State)) + geom_line(stat="identity")+theme_bw() + 
+  theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+  labs(title= str_wrap("Trends across states in tax liability, tax year 1999 to 2019", 85), y= "Tax liability (in billions)", x= "Tax year") +
+  scale_y_continuous(labels = unit_format(unit = "B", scale = 1e-9, accuracy = NULL))
+```
+
+### Trends in adjusted gross income across states
+
+The 1999-2014 dataset contains one variable for AGI: `NY AGI of All Returns (in thousands) *`.
+
+The 2015-2019 dataset contains two variables for AGI: 1) `New York State Amount of NY Adjusted Gross Income` and 2) `Federal Amount of NY Adjusted Gross Income`. The data dictionary for that dataset also states:
+
+> For Full‐Year Resident returns, the Federal and NYS Amounts of New York Adjusted Gross Income are equal.
+
+We want to use the `Federal Amount of NY Adjusted Gross Income` for our analysis, rather than the `New York State Amount of NY Adjusted Gross Income`. I plot trends in AGI below, with a comparison of the two variables for tax years 2015-2019.
+
+```{r AGI comparision, echo= F, out.width= "100%"}
+test3 <- readRDS("./data/working/test3.rds")
+
+ggplot(data= test3, aes(x= tax_year, y=total, group= variable, color= variable)) +
+  geom_line(stat="identity")+ 
+  theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+  labs(title= str_wrap("Federal AGI versus NY AGI for states other than NY", 85), y= "AGI (in billions)", x= "Tax year") +
+  scale_y_continuous(labels = unit_format(unit = "B", scale = 1e-9, accuracy = NULL))+ geom_vline(xintercept= "2014", linetype="solid", color = "black", size=0.2)+
+  annotate("text", x = "2012", y = 250000000000,label = c("Dataset 1"), size= 3)+
+  annotate("text", x = "2016", y = 250000000000,label = c("Dataset 2"), size= 3)
+```
+
+## Origin-destination map
+
+I experimented with using the `mapdeck` package to plot the flow of taxes entering New York from other states in the continental USA in 2019. Hover your mouse over lines on the map to see the tax liability owed by residents in each state to New York.
+
+```{r mapdeck, echo= F, cache= T, warning=F, message= F, out.width= "100%"}
+set_token('pk.eyJ1IjoicHNjaHVtYTIiLCJhIjoiY2wyeTB5c2NnMTBuMDNmcDI4MG9tM2RwNCJ9._A9-p8zJ5eQxouyUT46gvA')
+# mapdeck_tokens()
+
+ny <- data.frame(state.name, state.center) %>%
+  filter(state.name== "New York") %>%
+  st_as_sf(coords = c("x", "y"), crs = 4269) %>%
+  select(geometry)
+
+#Values for tax liability 
+beta <- tax_states %>%
+  filter(tax_year== 2019) %>%
+  select(state, tax_liability_of_all_returns)
+
+
+# Centroids for states (origin)
+centroids <- data.frame(state.name, state.center) %>%
+  st_as_sf(coords = c("x", "y"), crs = 4269) %>%
+  merge(beta, by.x= "state.name", by.y= "state") %>%
+  mutate(centroid2= ny$geometry,
+         width= log10(tax_liability_of_all_returns),
+         tooltip= paste0(state.name,", ",scales::comma(tax_liability_of_all_returns * 5, 1))) %>%
+  filter(state.name %ni% c("Alaska", "Hawaii"))
+
+centroids %>% 
+  mapdeck(style = mapdeck_style("dark"), pitch = 45) %>% 
+  add_arc(
+    origin = "geometry",
+    destination = "centroid2",
+    stroke_width = "width",
+    auto_highlight = TRUE,
+    highlight_colour = "#8c43facc",
+    tooltip = "tooltip"
+  ) 
+```
+
+# Section 2: Sales-related data
+
+I used the dataset [Taxable Sales And Purchases Quarterly Data: Beginning Sales Tax Year 2013-2014](https://data.ny.gov/Government-Finance/Taxable-Sales-And-Purchases-Quarterly-Data-Beginni/ny73-2j3u) for this analysis. According to the dataset owner:
+
+> These statistics come from more than three million data items reported on about 250,000 sales tax returns filed quarterly and on about 300,000 returns filed annually. The dataset categorizes quarterly sales and purchases data by industry group using the North American Industry Classification System. The status of data will change as preliminary data becomes final.
+
+I first examine the top ten industries and sectors in the state during tax year 2020-2021, and then I turn to an analysis of how the court case *South Dakota v. Wayfair* impacted tax collection in the New York State.
+
+## Top industries in 2020-2021
+
+The top industry in New York State was automobile dealers (industry code 411). This industry accounted for 29 billion in taxable sales and purchases or 19 percent of the total. The second largest industry was restaurants and other eating places (industry code 7225). I was surprised that the auto-industry topped the list for so many counties, to the extent that I was worried that I had miscalculated.
+
+```{r echo=F, warning= F, message= F}
+sales %>%
+  filter(jurisdiction== "NY STATE", sales_tax_year== "2020 - 2021") %>%
+  mutate(taxable_sales_and_purchases= as.numeric(taxable_sales_and_purchases)) %>%
+  group_by(sales_tax_year, jurisdiction, naics_industry_group, description) %>%
+  summarize(total_rev= sum(taxable_sales_and_purchases, na.rm= T)) %>%
+  # filter(jurisdiction== "NY STATE", sales_tax_year== "2020 - 2021") %>%
+  ungroup %>%
+  slice_max(order_by = total_rev, n= 10) %>%
+  adorn_percentages(denominator = "col", na.rm= T) %>%
+  adorn_pct_formatting(rounding = "half up", digits = 2) %>%  select(Jurisdiction= jurisdiction,Industry= description, `Total Revenue`= total_rev ) %>%
+  kbl(caption = "Top industries by revenue in NYS, tax year 2020-2021") %>%
+  kable_paper("hover", full_width = F) 
+```
+
+## Top sectors in 2020-2021
+
+The first two digits of the industry code represent the sector, which is the highest order in the industry classification system used NCAICS. I extracted the first two digits of the industry code and merged them with the descriptions of sectors (there are 20 of them) from a file available from the [Bureau of Labor Statistics](https://www.census.gov/programs-surveys/economic-census/guidance/understanding-naics.html). The results revealed the retail trade (sectors 44 and 45) as the dominant sector. This finding comports results from the section above because automobile dealers are included in the retail sector.
+
+```{r echo=F, warning= F, message= F}
+sales %>%
+  mutate(sector= as.numeric(substr(naics_industry_group, 1, 2)),
+         taxable_sales_and_purchases= as.numeric(taxable_sales_and_purchases)) %>%
+  merge(ncais, by= "sector", all.x= T) %>%
+  group_by(sales_tax_year, jurisdiction, sector_description) %>%
+  summarize(total_rev= sum(taxable_sales_and_purchases, na.rm= T)) %>%
+  filter(jurisdiction== "NY STATE", sales_tax_year== "2020 - 2021") %>%
+  ungroup %>% 
+  # arrange(desc(total_rev)) %>%
+  slice_max(order_by = total_rev, n= 10) %>%
+  adorn_percentages(denominator = "col", na.rm= T) %>%
+  adorn_pct_formatting(rounding = "half up", digits = 2) %>%
+  # adorn_ns(position = "front") %>%
+  dplyr::select(Jurisdiction= jurisdiction,Sector= sector_description, `Total Revenue`= total_rev) %>%
+  kbl(caption = "Top sectors by revenue in NYS, tax year 2020-2021") %>%
+  kable_paper("hover", full_width = F) 
+
+```
+
+## Top industries by county, 2013-2022
+
+The map below provides a longitudinal illustration of the the top industry in each county for each year in the study period. I observed that automobile dealers, represented by the green shading, has historically occupied the top slot in most counties. Note: I do not show counties in NYC because the data only provides aggregate, but not individual, values for counties in the city (Manhattan, Bronx, Kings/Brooklyn, Queens, Richmond/Staten Island).
+
+<img src="/Users/patricksaccount/Desktop/RIG Work/Stat Yearbook Tax Data/figures/sales_anim.gif" alt="animation"/>
+
+## Impact of South Dakota v. Wayfair
+
+South Dakota passed Senate Bill 106 in March 2016 to compel out-of-state vendors to collect sale tax on goods shipped into the state. Several out-of-state vendors, including Wayfair, a furniture company, refused to comply. Those vendors maintained that a previous ruling by the U.S. Supreme Court (*Quill Corp V. North Dakota*) prevented states from collecting taxes on internet sales unless the vendor had a physical presence in the state.
+
+The issue eventually reached in the U.S. Supreme Court, and on June 21, 2018, the Court issued a 5-4 overturning Quill and putting forth the right for states to collect sales tax from out-of-state vendors. In this section, I aim to examine how *South Dakota v. Wayfair* impacted the collection of taxes in New York State. I focus on five counties: Albany, Erie, Monroe Onondaga, and Orange.
+
+```{r shop, echo=F, warning= F, message= F}
+shop <- sales %>%
+  mutate(taxable_sales_and_purchases= as.numeric(taxable_sales_and_purchases),
+         sales_tax_year= str_replace(sales_tax_year," .*", ""),
+         selling_period= str_replace(selling_period," .*", ""),
+         month= match(selling_period, month.name)) %>%
+  unite(date, c(sales_tax_year, month), sep = "/") %>%
+  mutate(date= ym(date)) %>%
+  filter(jurisdiction %in% c("ALBANY", "ERIE", "MONROE", "ONONDAGA", "ORANGE"))
+```
+
+The results show a large increase in the taxes for Electronic Shopping and Mail-Order Houses (industry code 4541). *South Dakota v. Wayfair* was a boon in revenue for the state from the burgeoning industry of online sales.
+
+```{r electronic shopping, echo=F, warning= F, message= F, out.width= "100%"}
+ggplot(filter(shop,naics_industry_group== "4541"), aes(x= date, y= taxable_sales_and_purchases, colour= jurisdiction, group= jurisdiction)) +
+  geom_line(stat="identity") + theme_bw() + theme(legend.position="right",
+                                                  axis.text.x=element_text(angle = -45, hjust = 0),
+                                                  axis.title.x=element_blank())+ geom_point(pch= 2)+
+  labs(title= str_wrap("Taxable sales from electronic shopping rose after the 1st quarter of 2019",50),
+       y= "Taxable sales and purchases (in billions)", color= "County")+
+  scale_x_date(date_breaks = "4 months" , date_labels = "%b-%y")+
+  scale_y_continuous(labels = unit_format(unit = "M", scale = 1e-6, accuracy = NULL))+
+  geom_vline(xintercept= as.Date("2019-01-01"), linetype="solid", color = "black", size=0.2)+
+  annotate("text", x = as.Date("2016-12-01"), y = 200000000,label = c("Pre South-Dakota v. Wayfair"), size= 3)
+
+```
+
+The results showed that taxable sales and purchases from Department Stores (industry code 4522) decreased or remained flat during the study period. The use of of department stores as a control provides support that *South Dakota v. Wayfair* was responsible for the large increase in revenue observed for electronic shopping.
+
+```{r department, echo=F, warning= F, message= F, out.width= "100%"}
+ggplot(filter(shop,naics_industry_group== "4522"), aes(x= date, y= taxable_sales_and_purchases, colour= jurisdiction, group= jurisdiction)) +
+  geom_line(stat="identity") + theme_bw() + theme(legend.position="right",
+                                                  axis.text.x=element_text(angle = -45, hjust = 0),
+                                                  axis.title.x=element_blank())+ geom_point(pch= 2)+
+  labs(title= str_wrap("Taxs from department stores have decreased or remained the same", 50),
+       y= "Taxable sales and purchases (in millions)", color= "County")+
+  scale_x_date(date_breaks = "4 months" , date_labels = "%b-%y")+
+  scale_y_continuous(labels = unit_format(unit = "M", scale = 1e-6, accuracy = NULL))+
+  geom_vline(xintercept= as.Date("2019-01-01"), linetype="solid", color = "black", size=0.2)+
+  annotate("text", x = as.Date("2017-06-01"), y = 120000000,label = c("Pre South-Dakota v. Wayfair"), size= 3)
+```
+
+# Notes
+
+-   The dataset on personal income tax from 1999 to 2014 is sample data, whereas the data from 2015 to 2020 is the entire population. The data dictionary states:
+
+> For tax years prior to 2015, data were based on sample data. Data customers are advised to use caution when drawing conclusions comparing data for tax years prior to 2015 and subsequent tax years.
+
+-   There was a data entry error in the 1999-2014 dataset that I corrected. Hamilton County was incorrectly labeled as Greene County in 2005.
+
+-   It might be interesting to see how tax revenue from auto dealers increased during the pandemic, given the surge in demand for cars that occurred during that time.
+
+-   I will upload the code that I used to clean the data to the One Drive folder. Right now, I do not have access to edit the folder, so I cannot upload any materials.
