@@ -1,0 +1,376 @@
+---
+title: "New York State Tax Dashboard"
+author: "Patrick Schumacher"
+date: '`r paste("First created on 2022-5-25. Updated on", Sys.Date())`'
+output:
+  html_notebook:
+    code_folding: hide
+    toc: yes
+  html_document:
+    code_folding: hide 
+    toc: yes
+    toc_depth: 3
+    number_sections: no
+runtime: shiny
+---
+
+```{=html}
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 15px;
+  }
+td {  /* Table  */
+  font-size: 14px;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 18px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+```
+```{r echo= F, warning=F, message= F}
+library(shiny)
+library(rsconnect)
+library(tidyverse)
+library(RCurl)
+library(curl)
+library(scales)
+library(plotly)
+
+```
+
+```{r echo= F}
+url <- "https://github.com/pschuma1/reportsrig/raw/main/githubUpload.rda"
+load(url(url, method="libcurl"))  
+
+```
+
+# What's new in this report?
+
+My objective was to address the points discussed in the meeting among Laura, Bob, and me on May 25th, including the following:
+
+-   I divide New York counties into downstate and upstate for analysis
+
+-   I plot adjusted gross income and total liability per returnee (it was originally not calculated per returnee)
+
+-   I find the percentage of the tax liability, rather than the dollar amount, associated with each state
+
+-   The quality of the report is enhanced with greater interactivity
+
+# How does income-related data differ for upstate and downstate New York?
+
+Our analysis found that the average adjusted gross income (AGI) was higher for for residents of downstate New York (\$97,016) than for residents of upstate New York (\$55,666) in 2019. Similarly, the tax liability of downstate residents was higher (\$5,190 versus \$2,386).
+
+We considered downstate New York to include all counties in the Metropolitan Commuter Transportation District (MCTD): New York (Manhattan), Bronx, Kings (Brooklyn), Queens, Richmond (Staten Island), Rockland, Nassau, Suffolk, Orange, Putnam, Dutchess, and Westchester. Upstate counties were considered as all those not in the MCTD.
+
+```{r downVup, out.width= "100%", fig.height= 15}
+
+ui <- fluidPage(
+    titlePanel("Downstate residents generally have a higher adjusted gross income and a higher tax liability than upstate residents"),
+    selectInput(inputId = "variable", 
+                label = "Choose a variable", 
+                selected= "number_of_all_returns",
+                choices = unique(downVup$variable)),
+    plotly::plotlyOutput("line", height= 600),
+    downloadButton("download")
+)
+
+server <- function(input, output, session) {
+    output$line <- plotly::renderPlotly({
+      p1 <- ggplot(data= filter(downVup, variable== input$variable), aes(x= tax_year, y= value, color= region, group= region)) +
+  geom_line(stat="identity") + theme_bw() + geom_point(pch= 2)+
+  theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+  labs(title= paste(input$variable,", 1999 to 2019"),
+       y= paste(input$variable), x= "Tax year", color= "Region")+ 
+  scale_y_continuous(labels = scales::dollar_format(prefix = "$", big.mark = ","))+
+  scale_color_brewer(palette = "Dark2") 
+
+      ggplotly(p1, tooltip = c("x","y","colour"))
+    })
+  
+   data <- downVup    
+  output$download <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".csv", sep="")
+    },
+    content = function(file) {
+      write.csv(data, file)
+    }
+)
+}
+
+
+shinyApp(ui = ui, server = server, options = list(height =830))
+```
+
+# How progessive is the New York tax system?
+
+I found that people earning over \$500,000 pay a larger share of their income in taxes than people in lower income brackets (i.e., I divided `NYS Adjusted Gross income` by `total tax liability` and multiplied by 100).For this figure, I use data from 2007 to 2014. Data on filers' income bracket is not available after 2014. We might consider asking the Department of Taxation for this data if we include a figure like this in the final report.
+
+```{r plotRate, out.width= "100%"}
+options(digits=2)
+
+
+ui <- fluidPage(
+    titlePanel("The tax system in New York State is progressive"),
+  # selectInput(inputId = "year", 
+  #               label = "Choose a year", 
+  #               selected= 2014,
+  #               choices = unique(plotRate$tax_year)),
+  sliderInput('year', 'Select year:', min = 2007,
+              max = 2014, value = 2014, sep = "", ticks = T), 
+    plotly::plotlyOutput("myplot", height= 600),
+    downloadButton("download")
+)
+
+server <- function(input, output, session) {
+    output$myplot <- plotly::renderPlotly({
+    filtPlot <- plotRate %>%
+      filter(tax_year== input$year) 
+
+ggplot(data= filtPlot, aes(x= income_group, y= value))+
+  geom_bar(stat= "identity", fill= "lightblue")+ theme_bw()+
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1))+
+  labs(title= "This graph shows tax liability as a share of AGI across income groups",y= "Tax liability as a share of AGI", x= "Income group")+
+  scale_x_discrete(labels = function(x) str_wrap(x, width = 10))+
+  geom_hline(yintercept = mean(filtPlot$value),linetype="dashed", 
+             color = "red", size=0.3) +
+  annotate("text", x = "$30,000- $59,999", y = 0.05,label = paste("The average share for all income\ngroups was",(format(round((mean(filtPlot$value)*100), 2), nsmall = 2)),"percent in", input$year), size= 4)
+})
+      data <- plotRate   
+  output$download <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".csv", sep="")
+    },
+    content = function(file) {
+      write.csv(data, file)
+    }
+)
+    
+    
+    
+}
+shinyApp(ui = ui, server = server, options = list(height =800))
+```
+
+# How much taxes does New York State recieve from other states?
+
+The data show that people living in states outside of New York pay a substantial amount of taxes to the Empire Data. In 2019, for example, taxes collected from residents of other states amounted to 15 percent of all income tax collected by New York State.
+
+```{r propStates1, out.width= "100%"}
+
+ui <- fluidPage(
+    plotly::plotlyOutput("myplot", height= 700),
+    downloadButton("download")
+)
+
+server <- function(input, output, session) {
+    output$myplot <- plotly::renderPlotly({
+ggplot(data= propStates, aes(x= tax_year, y= value, fill= category)) +
+  geom_bar(stat="identity") + theme_bw() + coord_flip()+
+  scale_fill_brewer(palette = "Set2")  +
+  labs(title= "Residents of other states pay 14 percent of theincome tax collected by NYS, 1999-2019)",
+       y= "Percentage of total tax liability", fill= "Place")+
+  theme(axis.title.y=element_blank()) + scale_y_continuous(labels = scales::percent_format(accuracy = 1))
+       })
+    
+     data <- propStates   
+  output$download <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".csv", sep="")
+    },
+    content = function(file) {
+      write.csv(data, file)
+    }
+  )
+}
+
+
+shinyApp(ui = ui, server = server, options = list(height =750))
+
+```
+
+The data also show that taxes paid by residents of New Jersey and Connecticut amounted to a substantial percentage of New York's total revenue in 2019 (7.9% and 2.6%, respectively). Residents of all other states, however, each contributed less than 1 percent of the total taxes collected by New York in 2019.
+
+*Note: When referring to total taxes collected, I mean the grand total of the sum of `tax_liability_of_all_returns`.*
+
+```{r propStates2, warning=F, out.width= "100%"}
+
+ui <- fluidPage(
+    titlePanel("How much does each state contribute to the total income tax collected by New York State?"), 
+    # selectInput(inputId = "variable", 
+    #             label = "Choose a variable", 
+    #             selected= "number_of_all_returns",
+    #             choices = unique(pivTax99to19$variable)),
+    selectizeInput(inputId = "states", 
+                label = "Choose a state", 
+                choices = sort(propStates2$state),
+                multiple= TRUE,
+                selected= c("New Jersey","Connecticut", "California", "Florida"), 
+                options = list(maxItems= 6)), 
+    plotly::plotlyOutput("line", height= 650),
+    downloadButton("download")
+)
+
+server <- function(input, output, session) {
+    output$line <- plotly::renderPlotly({
+
+plot_state <- ggplot(data= filter(propStates2, state %in% input$states), 
+               aes(x= tax_year, y= value, group = state, color= state)) +
+  geom_line(stat="identity") + theme_bw()+ geom_point(pch= 2)+
+  theme(axis.title.x=element_blank(), axis.text.x=element_text(angle = -45, hjust = 0))+
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1))+
+  labs(title= "New Jerseyeans contribute about 8 percent of the income tax collected by New York State, 1999-2019", 
+       y= "Percentage of tax liability", color= "State")   
+
+ggplotly(plot_state, tooltip = c("x","y","colour"))
+
+    })
+    
+     data <- propStates2 
+  output$download <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".csv", sep="")
+    },
+    content = function(file) {
+      write.csv(data, file)
+    }
+  )
+}
+
+shinyApp(ui = ui, server = server, options = list(height =900))
+```
+
+# Taxable sales and purchases
+
+# Total revenue for industry
+
+```{r totalRev}
+ui <- fluidPage(
+  titlePanel("How have taxable sales and purchases changed over time for electronic shopping and department stores?"),
+  selectInput(inputId = "industry", 
+              label = "Choose an industry", 
+              selected= "Electronic Shopping and Mail-Order Houses",
+              choices = unique(salesRev$description)),
+  selectizeInput(inputId = "county", 
+                 label = "county", 
+                 choices = sort(salesRev$county),
+                 multiple= TRUE,
+                 selected= c("Albany", "Saratoga", "Rensselaer", "Schenectady"), 
+                 options = list(maxItems= 6)),
+  plotly::plotlyOutput("line", height= 600),
+  downloadButton("download")
+)
+
+server <- function(input, output, session) {
+  output$line <- plotly::renderPlotly({
+    p1 <- ggplot(data= filter(salesRev, 
+                              variable == "Revenue", 
+                              description== input$industry,
+                              county %in% input$county), aes(x= sales_tax_year, y= value, color= county, group= county)) +
+      geom_line(stat="identity") + theme_bw() + geom_point(pch= 2)+
+      theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+      labs(title= "Total taxable sales and purchases for industry",
+           y= "Amount of tax revenue from industry (in millions)", x= "Tax year", color= "County")+
+      scale_y_continuous(labels = unit_format(unit = "M", scale = 1e-6))+
+      scale_color_brewer(palette = "Set1")
+      
+    
+    ggplotly(p1, tooltip = c("x","y","colour"))
+  })
+  
+  data <- salesRev    
+  output$download <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".csv", sep="")
+    },
+    content = function(file) {
+      write.csv(data, file)
+    }
+  )
+}
+
+
+shinyApp(ui = ui, server = server, options = list(height =830))
+
+```
+
+
+# Percent of revenue across all industries 
+
+I sought to determine how what percent of the total revenue that these two industries account for through the years. 
+
+```{r totalRev}
+ui <- fluidPage(
+  titlePanel("How have taxable sales and purchases changed over time for electronic shopping and department stores?"),
+  selectInput(inputId = "industry", 
+              label = "Choose an industry", 
+              selected= "Electronic Shopping and Mail-Order Houses",
+              choices = unique(salesRev$description)),
+  selectizeInput(inputId = "county", 
+                 label = "county", 
+                 choices = sort(salesRev$county),
+                 multiple= TRUE,
+                 selected= c("Albany", "Saratoga", "Rensselaer", "Schenectady"), 
+                 options = list(maxItems= 6)),
+  plotly::plotlyOutput("line", height= 600),
+  downloadButton("download")
+)
+
+server <- function(input, output, session) {
+  output$line <- plotly::renderPlotly({
+    p1 <- ggplot(data= filter(salesRev, 
+                              variable == "Percent of total revenue", 
+                              description== input$industry,
+                              county %in% input$county), aes(x= sales_tax_year, y= value, color= county, group= county)) +
+      geom_line(stat="identity") + theme_bw() + geom_point(pch= 2)+
+      theme(axis.text.x=element_text(angle = -45, hjust = 0))+
+      labs(title= "Total taxable sales and purchases for industry",
+           y= "Amount of tax revenue from industry (in millions)", x= "Tax year", color= "County")+
+      scale_y_continuous(labels = unit_format(unit = "M", scale = 1e-6))+
+      scale_color_brewer(palette = "Set1")
+      
+    
+    ggplotly(p1, tooltip = c("x","y","colour"))
+  })
+  
+  data <- salesRev    
+  output$download <- downloadHandler(
+    filename = function() {
+      paste("data-", Sys.Date(), ".csv", sep="")
+    },
+    content = function(file) {
+      write.csv(data, file)
+    }
+  )
+}
+
+
+shinyApp(ui = ui, server = server, options = list(height =830))
+
+```
+
+
+
+
+
